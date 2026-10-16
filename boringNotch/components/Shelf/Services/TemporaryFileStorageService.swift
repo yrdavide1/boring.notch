@@ -10,7 +10,7 @@ import AppKit
 import UniformTypeIdentifiers
 
 enum TempFileType {
-    case data(Data, suggestedName: String?)
+    case data(Data, suggestedName: String?, fileExtension: String? = nil)
     case text(String)
     case url(URL)
 }
@@ -61,8 +61,8 @@ final class TemporaryFileStorageService {
         let uuid = UUID().uuidString
 
         switch type {
-        case .data(let data, let suggestedName):
-            let filename = suggestedName ?? ".dat"
+        case .data(let data, let suggestedName, let fileExtension):
+            let filename = Self.dataFileName(suggestedName: suggestedName, fileExtension: fileExtension)
             let dirURL = tempDir.appendingPathComponent(uuid, isDirectory: true)
             let fileURL = dirURL.appendingPathComponent(filename)
 
@@ -226,6 +226,16 @@ final class TemporaryFileStorageService {
     }
 
     // MARK: - Content Creation Helpers
+
+    /// Builds a visible file name for dropped raw data. Falls back to "Untitled" when the
+    /// source gave no name, and appends the extension of the data's type when the name has none.
+    static func dataFileName(suggestedName: String?, fileExtension: String?) -> String {
+        let trimmed = suggestedName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let name = trimmed.isEmpty ? "Untitled" : trimmed
+        guard (name as NSString).pathExtension.isEmpty,
+              let fileExtension, !fileExtension.isEmpty else { return name }
+        return "\(name).\(fileExtension)"
+    }
 
     private func createWeblocContent(for url: URL) -> String {
         return """

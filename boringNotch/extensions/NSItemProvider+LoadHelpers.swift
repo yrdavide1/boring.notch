@@ -22,14 +22,21 @@ extension NSItemProvider {
         return nil
     }
 
-    /// Loads raw data for the given type identifier
+    /// The highest-fidelity registered type that is raw data, e.g. `public.png`.
+    var preferredDataType: UTType? {
+        registeredTypeIdentifiers.lazy
+            .compactMap { UTType($0) }
+            .first { $0.conforms(to: .data) }
+    }
+
+    /// Loads raw data in the `preferredDataType` representation, so the data matches that type
     func loadData() async -> Data? {
         NSLog(String(describing: self.registeredTypeIdentifiers))
-        guard hasItemConformingToTypeIdentifier(UTType.data.identifier) else { return nil }
+        guard let typeIdentifier = preferredDataType?.identifier else { return nil }
         return await withCheckedContinuation { (cont: CheckedContinuation<Data?, Never>) in
-            loadItem(forTypeIdentifier: UTType.data.identifier, options: nil) { item, error in
+            loadItem(forTypeIdentifier: typeIdentifier, options: nil) { item, error in
                 if let error = error {
-                    Log.general.error("Error loading data for type \(UTType.data.identifier): \(error.localizedDescription)")
+                    Log.general.error("Error loading data for type \(typeIdentifier): \(error.localizedDescription)")
                     cont.resume(returning: nil)
                     return
                 }

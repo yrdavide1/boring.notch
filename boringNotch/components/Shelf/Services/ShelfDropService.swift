@@ -56,7 +56,11 @@ struct ShelfDropService {
         }
 
         if let data = await provider.loadData() {
-            if let tempDataURL = await TemporaryFileStorageService.shared.createTempFile(for: .data(data, suggestedName: provider.suggestedName)),
+            if let tempDataURL = await TemporaryFileStorageService.shared.createTempFile(for: .data(
+                data,
+                suggestedName: provider.suggestedName,
+                fileExtension: provider.preferredDataType?.preferredFilenameExtension
+            )),
                let bookmark = createBookmark(for: tempDataURL) {
                 return await ShelfItem(kind: .file(bookmark: bookmark), isTemporary: true)
             }

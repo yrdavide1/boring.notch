@@ -291,7 +291,6 @@ func defaultAppURL(for item: ShelfItem) -> URL? {
 }
 
 private final class MenuActionTarget: NSObject {
-    private static var copiedURLs: [URL] = []
     let item: ShelfItem
     weak var view: NSView?
     let onShare: (NSView?) -> Void
@@ -406,35 +405,8 @@ private final class MenuActionTarget: NSObject {
 
         case .copy?:
             let selected = ShelfSelectionModel.shared.selectedItems(in: ShelfStateViewModel.shared.items)
-            let pb = NSPasteboard.general
-
-            // Stop accessing previously copied URLs
-            for url in MenuActionTarget.copiedURLs {
-                url.stopAccessingSecurityScopedResource()
-            }
-            MenuActionTarget.copiedURLs.removeAll()
-
-            pb.clearContents()
-            Task {
-                let fileURLs = await selected.asyncCompactMap { item -> URL? in
-                    if case .file = item.kind {
-                        return ShelfStateViewModel.shared.resolveAndUpdateBookmark(for: item)
-                    }
-                    return nil
-                }
-                if !fileURLs.isEmpty {
-                    // Start security-scoped access for all URLs and keep them active
-                    MenuActionTarget.copiedURLs = fileURLs.filter { $0.startAccessingSecurityScopedResource() }
-                    NSLog("🔐 Started security-scoped access for \(MenuActionTarget.copiedURLs.count) copied files")
-
-                    // Write to pasteboard
-                    pb.writeObjects(fileURLs as [NSURL])
-                } else {
-                    let strings = selected.map { $0.displayName }
-                    if !strings.isEmpty {
-                        pb.setString(strings.joined(separator: "\n"), forType: .string)
-                    }
-                }
+            if !ShelfActionService.copy(selected) {
+                NSSound.beep()
             }
 
         case .remove?:
