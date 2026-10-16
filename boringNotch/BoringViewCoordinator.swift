@@ -93,6 +93,7 @@ final class BoringViewCoordinator: ObservableObject {
     private var boringShelfCancellable: AnyCancellable?
     private var osdSourceCancellables: [AnyCancellable] = []
     private var notificationLiveActivityCancellable: AnyCancellable?
+    private var claudeCodeCancellable: AnyCancellable?
     private var uiEventCancellable: AnyCancellable?
 
     private init() {
@@ -206,6 +207,21 @@ final class BoringViewCoordinator: ObservableObject {
                 }
             }
 
+        // The Claude Code toggle owns the local listener lifecycle.
+        claudeCodeCancellable = Defaults.publisher(.claudeCodeEnabled, options: [])
+            .sink { [weak self] change in
+                Task { @MainActor in
+                    if change.newValue {
+                        ClaudeCodeManager.shared.start()
+                    } else {
+                        ClaudeCodeManager.shared.stop()
+                        if self?.currentView == .claudeCode {
+                            self?.currentView = .home
+                        }
+                    }
+                }
+            }
+
         Task { @MainActor in
             helloAnimationRunning = firstLaunch
 
@@ -215,6 +231,10 @@ final class BoringViewCoordinator: ObservableObject {
 
             if Defaults[.notificationLiveActivity] {
                 await SystemNotificationManager.shared.start()
+            }
+
+            if Defaults[.claudeCodeEnabled] {
+                ClaudeCodeManager.shared.start()
             }
             self.applyOSDSources()
         }
