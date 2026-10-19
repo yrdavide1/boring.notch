@@ -23,12 +23,55 @@ import SwiftUI
 enum LiveActivityItem: Identifiable, Equatable {
     case notification(SystemNotification)
     case music
+    /// Aggregated Claude Code sessions. No payload and a constant id, so a state
+    /// change redraws the item in place instead of re-inserting it.
+    case claudeCode
 
     var id: String {
         switch self {
         case .notification(let notification): "notification-\(notification.id)"
         case .music: "music"
+        case .claudeCode: "claudeCode"
         }
+    }
+}
+
+/// Front-to-back order of the closed-notch stack. Moments that ask for attention
+/// (a notification, Claude Code needing the user or finishing, a song change) go
+/// first; the steady activities follow in the order the user chose.
+enum LiveActivityOrder {
+    static func items(
+        notification: SystemNotification?,
+        claudeCode: ClaudeActivitySummary?,
+        musicShowing: Bool,
+        musicPeekShowing: Bool,
+        claudeCodeInFrontOfMusic: Bool
+    ) -> [LiveActivityItem] {
+        var items: [LiveActivityItem] = []
+        if let notification {
+            items.append(.notification(notification))
+        }
+
+        var claudePending = claudeCode != nil
+        var musicPending = musicShowing || musicPeekShowing
+
+        if claudeCode?.isUrgent == true {
+            items.append(.claudeCode)
+            claudePending = false
+        }
+        if musicPeekShowing {
+            items.append(.music)
+            musicPending = false
+        }
+
+        if claudeCodeInFrontOfMusic {
+            if claudePending { items.append(.claudeCode) }
+            if musicPending { items.append(.music) }
+        } else {
+            if musicPending { items.append(.music) }
+            if claudePending { items.append(.claudeCode) }
+        }
+        return items
     }
 }
 

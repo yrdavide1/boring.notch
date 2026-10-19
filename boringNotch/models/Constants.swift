@@ -539,6 +539,8 @@ extension Defaults.Keys {
     // MARK: Claude Code
     static let claudeCodeEnabled = Key<Bool>("claudeCodeEnabled", default: false)
     static let claudeCodeStaleMinutes = Key<Int>("claudeCodeStaleMinutes", default: 15)
+    static let claudeCodeClosedActivity = Key<ClaudeClosedActivityMode>("claudeCodeClosedActivity", default: .whileWorking)
+    static let claudeCodeInFrontOfMusic = Key<Bool>("claudeCodeInFrontOfMusic", default: true)
 
     // MARK: Calendar
     static let calendarSelectionState = Key<CalendarSelectionState>("calendarSelectionState", default: .all)
