@@ -1,9 +1,12 @@
 #!/usr/bin/env bash
 #
 # Builds Boring Notch from this checkout and installs it into /Applications,
-# replacing the installed copy. For personal use on this Mac: the build is
-# signed ad-hoc ("Sign to Run Locally"), so macOS may ask again for
-# Accessibility and other permissions after each install.
+# replacing the installed copy. For personal use on this Mac.
+#
+# Signing: if a code-signing certificate named "Boring Notch Local Signing" (or
+# $SIGNING_IDENTITY) is in the keychain, even a self-signed one, the app is signed with it, so macOS
+# keeps its permissions across rebuilds. Otherwise the build is signed ad-hoc
+# and macOS may ask again for Accessibility and other permissions after each install.
 #
 # Usage: scripts/install-local.sh
 
@@ -12,6 +15,7 @@ set -euo pipefail
 BUNDLE_ID="theboringteam.boringnotch"
 APP_NAME="Boring Notch.app"
 LEGACY_APP="/Applications/boringNotch.app"
+SIGNING_IDENTITY="${SIGNING_IDENTITY:-Boring Notch Local Signing}"
 DEST="/Applications/$APP_NAME"
 
 REPO="$(git -C "$(dirname "$0")" rev-parse --show-toplevel)"
@@ -40,12 +44,20 @@ if [ -n "$(git -C "$REPO" status --porcelain)" ]; then
 fi
 
 echo "Building $(git -C "$REPO" rev-parse --abbrev-ref HEAD) @ $(git -C "$REPO" rev-parse --short HEAD)..."
-# Hardened Runtime is off because an ad-hoc signature has no Team ID, and library
-# validation would then reject the embedded MediaRemoteAdapter.framework at launch.
-# With an Apple Development certificate, drop this override and pass DEVELOPMENT_TEAM instead.
+if security find-identity -v -p codesigning | grep -qF "\"$SIGNING_IDENTITY\""; then
+    echo "Signing with \"$SIGNING_IDENTITY\"."
+    SIGNING=(CODE_SIGN_STYLE=Manual "CODE_SIGN_IDENTITY=$SIGNING_IDENTITY" DEVELOPMENT_TEAM= PROVISIONING_PROFILE_SPECIFIER=)
+else
+    echo "warning: no \"$SIGNING_IDENTITY\" certificate, signing ad-hoc" >&2
+    SIGNING=(CODE_SIGN_IDENTITY=-)
+fi
+
+# Hardened Runtime is off because neither an ad-hoc nor a self-signed certificate has a
+# Team ID, and library validation would then reject the embedded MediaRemoteAdapter.framework
+# at launch. With an Apple Development certificate, drop this override and pass DEVELOPMENT_TEAM.
 xcodebuild -project "$REPO/boringNotch.xcodeproj" -scheme boringNotch -configuration Release \
     -destination "platform=macOS,arch=$(uname -m)" -derivedDataPath "$DERIVED_DATA" -quiet \
-    ENABLE_HARDENED_RUNTIME=NO build
+    ENABLE_HARDENED_RUNTIME=NO "${SIGNING[@]}" build
 [ -d "$BUILT_APP" ] || fail "build succeeded but $BUILT_APP is missing"
 
 if pgrep -xq "Boring Notch"; then
