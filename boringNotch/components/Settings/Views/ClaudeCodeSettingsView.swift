@@ -26,7 +26,7 @@ struct ClaudeCodeSettingsView: View {
           "OTEL_EXPORTER_OTLP_METRICS_PROTOCOL": "http/json",
           "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT": "http://127.0.0.1:47800/v1/metrics",
           "OTEL_EXPORTER_OTLP_METRICS_HEADERS": "X-BoringNotch-Client=claude-code",
-          "OTEL_METRIC_EXPORT_INTERVAL": "10000"
+          "OTEL_METRIC_EXPORT_INTERVAL": "5000"
         }
         """
     private static let uninstallCommands = """
@@ -104,7 +104,7 @@ struct ClaudeCodeSettingsView: View {
             } header: {
                 Text("Token usage")
             } footer: {
-                Text("To show tokens and cost per session, add these entries to the \"env\" object in ~/.claude/settings.json (merge them if it already exists), then start a new Claude Code session. Claude Code sends usage to this Mac every 10 seconds. The cost is Claude Code's estimate at API prices, not what a subscription bills.")
+                Text("To show tokens and cost per session, add these entries to the \"env\" object in ~/.claude/settings.json (merge them if it already exists), then start a new Claude Code session. Claude Code sends usage to this Mac every 5 seconds. The cost is Claude Code's estimate at API prices, not what a subscription bills.")
             }
 
             Section {
