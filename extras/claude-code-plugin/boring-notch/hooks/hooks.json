@@ -1,0 +1,125 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "curl -s -o /dev/null --connect-timeout 0.2 -m 0.5 -H 'Content-Type: application/json' -H 'X-BoringNotch-Client: claude-code' --data-binary @- http://127.0.0.1:47800/hooks || true",
+            "timeout": 2
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "curl -s -o /dev/null --connect-timeout 0.2 -m 0.5 -H 'Content-Type: application/json' -H 'X-BoringNotch-Client: claude-code' --data-binary @- http://127.0.0.1:47800/hooks || true",
+            "timeout": 2
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "curl -s -o /dev/null --connect-timeout 0.2 -m 0.5 -H 'Content-Type: application/json' -H 'X-BoringNotch-Client: claude-code' --data-binary @- http://127.0.0.1:47800/hooks || true",
+            "timeout": 2
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "curl -s -o /dev/null --connect-timeout 0.2 -m 0.5 -H 'Content-Type: application/json' -H 'X-BoringNotch-Client: claude-code' --data-binary @- http://127.0.0.1:47800/hooks || true",
+            "timeout": 2
+          }
+        ]
+      }
+    ],
+    "PostToolUseFailure": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "curl -s -o /dev/null --connect-timeout 0.2 -m 0.5 -H 'Content-Type: application/json' -H 'X-BoringNotch-Client: claude-code' --data-binary @- http://127.0.0.1:47800/hooks || true",
+            "timeout": 2
+          }
+        ]
+      }
+    ],
+    "PermissionRequest": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "curl -s -o /dev/null --connect-timeout 0.2 -m 0.5 -H 'Content-Type: application/json' -H 'X-BoringNotch-Client: claude-code' --data-binary @- http://127.0.0.1:47800/hooks || true",
+            "timeout": 2
+          }
+        ]
+      }
+    ],
+    "Notification": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "curl -s -o /dev/null --connect-timeout 0.2 -m 0.5 -H 'Content-Type: application/json' -H 'X-BoringNotch-Client: claude-code' --data-binary @- http://127.0.0.1:47800/hooks || true",
+            "timeout": 2
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "curl -s -o /dev/null --connect-timeout 0.2 -m 0.5 -H 'Content-Type: application/json' -H 'X-BoringNotch-Client: claude-code' --data-binary @- http://127.0.0.1:47800/hooks || true",
+            "timeout": 2
+          }
+        ]
+      }
+    ],
+    "StopFailure": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "curl -s -o /dev/null --connect-timeout 0.2 -m 0.5 -H 'Content-Type: application/json' -H 'X-BoringNotch-Client: claude-code' --data-binary @- http://127.0.0.1:47800/hooks || true",
+            "timeout": 2
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "curl -s -o /dev/null --connect-timeout 0.2 -m 0.5 -H 'Content-Type: application/json' -H 'X-BoringNotch-Client: claude-code' --data-binary @- http://127.0.0.1:47800/hooks || true",
+            "timeout": 2
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "curl -s -o /dev/null --connect-timeout 0.2 -m 0.5 -H 'Content-Type: application/json' -H 'X-BoringNotch-Client: claude-code' --data-binary @- http://127.0.0.1:47800/hooks || true",
+            "timeout": 2
+          }
+        ]
+      }
+    ]
+  }
+}

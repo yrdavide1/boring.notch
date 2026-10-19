@@ -1,0 +1,15 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "boring-notch",
+  "description": "Local marketplace for the Boring Notch Claude Code integration.",
+  "owner": {
+    "name": "Boring Notch fork"
+  },
+  "plugins": [
+    {
+      "name": "boring-notch",
+      "description": "Sends Claude Code session events to the Boring Notch app on this Mac.",
+      "source": "./boring-notch"
+    }
+  ]
+}

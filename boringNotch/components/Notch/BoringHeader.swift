@@ -13,10 +13,20 @@ struct BoringHeader: View {
     @ObservedObject var batteryModel = BatteryStatusViewModel.shared
     @ObservedObject var coordinator = BoringViewCoordinator.shared
     @StateObject var shelfState = ShelfStateViewModel.shared
+    @ObservedObject var claudeCode = ClaudeCodeManager.shared
+    @Default(.boringShelf) private var shelfEnabled
+    @Default(.claudeCodeEnabled) private var claudeCodeEnabled
+
+    private var showsTabs: Bool {
+        let shelfTab = shelfEnabled && (!shelfState.isEmpty || coordinator.alwaysShowTabs)
+        let claudeCodeTab = claudeCodeEnabled && (!claudeCode.sessions.isEmpty || coordinator.alwaysShowTabs)
+        return shelfTab || claudeCodeTab
+    }
+
     var body: some View {
         HStack(spacing: 0) {
             HStack {
-                if (!shelfState.isEmpty || coordinator.alwaysShowTabs) && Defaults[.boringShelf] {
+                if showsTabs {
                     TabSelectionView()
                 } else if vm.notchState == .open {
                     EmptyView()

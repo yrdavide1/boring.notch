@@ -536,6 +536,10 @@ extension Defaults.Keys {
     static let expandedDragDetection = Key<Bool>("expandedDragDetection", default: true)
     static let reverseShelfOrdering = Key<Bool>("reverseShelfOrdering", default: false)
 
+    // MARK: Claude Code
+    static let claudeCodeEnabled = Key<Bool>("claudeCodeEnabled", default: false)
+    static let claudeCodeStaleMinutes = Key<Int>("claudeCodeStaleMinutes", default: 15)
+
     // MARK: Calendar
     static let calendarSelectionState = Key<CalendarSelectionState>("calendarSelectionState", default: .all)
     static let hideAllDayEvents = Key<Bool>("hideAllDayEvents", default: false)

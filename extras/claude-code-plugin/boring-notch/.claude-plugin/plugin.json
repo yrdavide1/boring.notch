@@ -1,0 +1,5 @@
+{
+  "name": "boring-notch",
+  "version": "0.1.0",
+  "description": "Sends Claude Code session events to the Boring Notch app on this Mac (127.0.0.1:47800). Read-only: the app never answers with decisions."
+}
