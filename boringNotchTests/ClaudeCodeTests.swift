@@ -287,6 +287,7 @@ final class LiveActivityOrderTests: XCTestCase {
     }
 }
 
+@MainActor
 final class PixelMascotTests: XCTestCase {
     func testSpritesFitTheGrid() {
         for (pose, rows) in PixelMascot.sprites {
@@ -370,5 +371,90 @@ final class ClaudeCodeManagerActivityTests: XCTestCase {
         manager.sweep(now: start.addingTimeInterval(16 * 60))
         XCTAssertEqual(manager.sessions.first?.state, .stale)
         XCTAssertNil(manager.activitySummary)
+    }
+}
+
+final class OTLPUsageParserTests: XCTestCase {
+    /// Shape of a real Claude Code export, with made-up identity values.
+    private func payload(temporality: String = "1", tokenValue: String = "98") -> Data {
+        Data("""
+        {"resourceMetrics":[{"resource":{"attributes":[{"key":"service.name","value":{"stringValue":"claude-code"}}]},
+         "scopeMetrics":[{"metrics":[
+          {"name":"claude_code.session.count","sum":{"aggregationTemporality":1,"dataPoints":[{"asInt":1,"attributes":[{"key":"session.id","value":{"stringValue":"s1"}}]}]}},
+          {"name":"claude_code.cost.usage","sum":{"aggregationTemporality":\(temporality),"dataPoints":[{"asDouble":0.0062,"attributes":[
+            {"key":"session.id","value":{"stringValue":"s1"}},{"key":"model","value":{"stringValue":"claude-haiku"}},
+            {"key":"user.email","value":{"stringValue":"someone@example.com"}}]}]}},
+          {"name":"claude_code.token.usage","sum":{"aggregationTemporality":\(temporality),"dataPoints":[
+            {"asInt":\(tokenValue),"attributes":[{"key":"session.id","value":{"stringValue":"s1"}},{"key":"type","value":{"stringValue":"output"}},{"key":"model","value":{"stringValue":"claude-haiku"}}]},
+            {"asInt":"30188","attributes":[{"key":"session.id","value":{"stringValue":"s1"}},{"key":"type","value":{"stringValue":"cacheCreation"}}]},
+            {"asInt":5,"attributes":[{"key":"type","value":{"stringValue":"input"}}]}]}}
+         ]}]}]}
+        """.utf8)
+    }
+
+    func testReadsUsageMetricsOnly() throws {
+        let samples = try OTLPUsageParser.samples(from: payload())
+        XCTAssertEqual(samples.map(\.metric), [.cost, .tokens(type: "output"), .tokens(type: "cacheCreation")])
+        XCTAssertEqual(samples.map(\.value), [0.0062, 98, 30188], "asInt may be a number or a string")
+        XCTAssertTrue(samples.allSatisfy { $0.sessionID == "s1" && !$0.isCumulative }, "points without session.id are skipped")
+        XCTAssertFalse(samples.contains { $0.seriesKey.contains("@") }, "identity attributes never enter the series key")
+    }
+
+    func testCumulativeTemporalityAsNumberOrName() throws {
+        XCTAssertTrue(try OTLPUsageParser.samples(from: payload(temporality: "2")).allSatisfy(\.isCumulative))
+        XCTAssertTrue(try OTLPUsageParser.samples(from: payload(temporality: "\"AGGREGATION_TEMPORALITY_CUMULATIVE\"")).allSatisfy(\.isCumulative))
+        XCTAssertThrowsError(try OTLPUsageParser.samples(from: Data("not json".utf8)))
+    }
+
+    func testFormatting() {
+        XCTAssertEqual(ClaudeUsage.tokensText(950), "950")
+        XCTAssertEqual(ClaudeUsage.tokensText(9_840), "9.8k")
+        XCTAssertEqual(ClaudeUsage.tokensText(184_300), "184k")
+        XCTAssertEqual(ClaudeUsage.tokensText(1_250_000), "1.2M")
+        XCTAssertEqual(ClaudeUsage.costText(0), "$0.00")
+        XCTAssertEqual(ClaudeUsage.costText(0.004), "<$0.01")
+        XCTAssertEqual(ClaudeUsage.costText(1.917), "$1.92")
+    }
+}
+
+@MainActor
+final class ClaudeCodeManagerUsageTests: XCTestCase {
+    private let manager = ClaudeCodeManager.shared
+
+    override func setUp() async throws { manager.stop() }
+    override func tearDown() async throws { manager.stop() }
+
+    private func sample(_ metric: ClaudeUsageSample.Metric, _ value: Double, cumulative: Bool = false, session: String = "s1") -> ClaudeUsageSample {
+        ClaudeUsageSample(sessionID: session, metric: metric, seriesKey: "\(metric)", value: value, isCumulative: cumulative)
+    }
+
+    func testDeltasAddUp() {
+        manager.handle([sample(.tokens(type: "input"), 10), sample(.tokens(type: "cacheRead"), 1_000), sample(.cost, 0.5)])
+        manager.handle([sample(.tokens(type: "input"), 5), sample(.cost, 0.25)])
+        let usage = manager.usage["s1"]
+        XCTAssertEqual(usage?.inputTokens, 15)
+        XCTAssertEqual(usage?.totalTokens, 1_015)
+        XCTAssertEqual(usage?.costUSD, 0.75)
+        XCTAssertNotNil(manager.lastMetricsAt)
+    }
+
+    func testCumulativeValuesReplace() {
+        manager.handle([sample(.tokens(type: "output"), 40, cumulative: true)])
+        manager.handle([sample(.tokens(type: "output"), 100, cumulative: true)])
+        XCTAssertEqual(manager.usage["s1"]?.outputTokens, 100)
+    }
+
+    func testSessionsAreSeparateAndRemovedWithTheSession() {
+        let start = Date(timeIntervalSince1970: 1_000)
+        manager.handle(ClaudeHookEvent(sessionID: "s1", hookEventName: "SessionEnd"), at: start)
+        manager.handle([sample(.cost, 1), sample(.cost, 2, session: "s2")], at: start)
+        XCTAssertEqual(manager.usage["s2"]?.costUSD, 2)
+
+        manager.sweep(now: start.addingTimeInterval(ClaudeCodeManager.endedRetention))
+        XCTAssertNil(manager.usage["s1"], "removed with its ended session")
+        XCTAssertEqual(manager.usage["s2"]?.costUSD, 2, "usage without a known session is kept for a while")
+
+        manager.sweep(now: start.addingTimeInterval(11 * 60))
+        XCTAssertNil(manager.usage["s2"])
     }
 }

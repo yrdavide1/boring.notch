@@ -19,6 +19,16 @@ struct ClaudeCodeSettingsView: View {
         claude plugin marketplace add \(pluginPath)
         claude plugin install boring-notch@boring-notch
         """
+    private static let telemetrySettings = """
+        "env": {
+          "CLAUDE_CODE_ENABLE_TELEMETRY": "1",
+          "OTEL_METRICS_EXPORTER": "otlp",
+          "OTEL_EXPORTER_OTLP_METRICS_PROTOCOL": "http/json",
+          "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT": "http://127.0.0.1:47800/v1/metrics",
+          "OTEL_EXPORTER_OTLP_METRICS_HEADERS": "X-BoringNotch-Client=claude-code",
+          "OTEL_METRIC_EXPORT_INTERVAL": "10000"
+        }
+        """
     private static let uninstallCommands = """
         claude plugin uninstall boring-notch
         claude plugin marketplace remove boring-notch
@@ -78,6 +88,23 @@ struct ClaudeCodeSettingsView: View {
                 Text("Install the Claude Code plugin")
             } footer: {
                 Text("Run these in Terminal, replacing the path with your checkout. The first line backs up your Claude Code settings; installing a plugin adds one entry to them. The plugin only sends events to this Mac (127.0.0.1) and never changes what Claude Code does.")
+            }
+
+            Section {
+                LabeledContent("Last usage update") {
+                    if let lastMetricsAt = manager.lastMetricsAt {
+                        Text(lastMetricsAt, style: .relative)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        Text("None yet")
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                commandBlock(Self.telemetrySettings)
+            } header: {
+                Text("Token usage")
+            } footer: {
+                Text("To show tokens and cost per session, add these entries to the \"env\" object in ~/.claude/settings.json (merge them if it already exists), then start a new Claude Code session. Claude Code sends usage to this Mac every 10 seconds. The cost is Claude Code's estimate at API prices, not what a subscription bills.")
             }
 
             Section {

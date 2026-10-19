@@ -23,6 +23,8 @@ final class ClaudeCodeListener: @unchecked Sendable {
     /// requests without a CORS preflight, so web pages cannot forge events.
     static let clientHeader = "x-boringnotch-client"
     static let hooksPath = "/hooks"
+    /// OTLP/HTTP JSON metrics export from Claude Code (token and cost usage).
+    static let metricsPath = "/v1/metrics"
 
     private static let maxBodySize = 1024 * 1024
     private static let connectionTimeout: TimeInterval = 5
@@ -32,10 +34,16 @@ final class ClaudeCodeListener: @unchecked Sendable {
     private let decoder = JSONDecoder()
 
     private let onEvent: @Sendable (ClaudeHookEvent) -> Void
+    private let onUsage: @Sendable ([ClaudeUsageSample]) -> Void
     private let onStatus: @Sendable (Status) -> Void
 
-    init(onEvent: @escaping @Sendable (ClaudeHookEvent) -> Void, onStatus: @escaping @Sendable (Status) -> Void) {
+    init(
+        onEvent: @escaping @Sendable (ClaudeHookEvent) -> Void,
+        onUsage: @escaping @Sendable ([ClaudeUsageSample]) -> Void,
+        onStatus: @escaping @Sendable (Status) -> Void
+    ) {
         self.onEvent = onEvent
+        self.onUsage = onUsage
         self.onStatus = onStatus
     }
 
@@ -114,7 +122,7 @@ final class ClaudeCodeListener: @unchecked Sendable {
             respond(on: connection, status: 403, reason: "Forbidden")
             return
         }
-        guard request.method == "POST", request.path == Self.hooksPath else {
+        guard request.method == "POST", request.path == Self.hooksPath || request.path == Self.metricsPath else {
             respond(on: connection, status: 404, reason: "Not Found")
             return
         }
@@ -122,9 +130,15 @@ final class ClaudeCodeListener: @unchecked Sendable {
         // Answer first so Claude Code never waits on the app.
         respond(on: connection, status: 200, reason: "OK")
         do {
-            onEvent(try decoder.decode(ClaudeHookEvent.self, from: request.body))
+            if request.path == Self.hooksPath {
+                onEvent(try decoder.decode(ClaudeHookEvent.self, from: request.body))
+            } else {
+                let samples = try OTLPUsageParser.samples(from: request.body)
+                if !samples.isEmpty { onUsage(samples) }
+            }
         } catch {
-            Log.claudeCode.error("Ignoring undecodable hook payload: \(error.localizedDescription)")
+            // The path is public for debugging; the error text stays private, as payloads carry the user's email.
+            Log.claudeCode.error("Ignoring undecodable payload on \(request.path, privacy: .public): \(error.localizedDescription)")
         }
     }
 
