@@ -42,7 +42,7 @@ struct ClaudeCodeView: View {
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(spacing: 2) {
                     ForEach(manager.sessions) { session in
-                        ClaudeSessionRow(session: session, now: context.date)
+                        ClaudeSessionRow(session: session, usage: manager.usage[session.id], now: context.date)
                     }
                 }
                 .padding(6)
@@ -53,6 +53,7 @@ struct ClaudeCodeView: View {
 
 private struct ClaudeSessionRow: View {
     let session: ClaudeSession
+    let usage: ClaudeUsage?
     let now: Date
 
     var body: some View {
@@ -71,6 +72,12 @@ private struct ClaudeSessionRow: View {
                 .foregroundStyle(session.state.needsAttention ? Color.orange : Color.gray)
                 .lineLimit(1)
             Spacer(minLength: 8)
+            if let usage {
+                Text("\(ClaudeUsage.tokensText(usage.totalTokens)) tok · \(ClaudeUsage.costText(usage.costUSD))")
+                    .font(.system(size: 11).monospacedDigit())
+                    .foregroundStyle(.gray)
+                    .lineLimit(1)
+            }
             Text(elapsed)
                 .font(.system(size: 11).monospacedDigit())
                 .foregroundStyle(.gray)

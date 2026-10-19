@@ -20,6 +20,9 @@ final class ClaudeCodeManager: ObservableObject {
     /// What the closed notch draws. Assigned only when it changes, so observers that
     /// mirror just this value don't re-render on every hook event.
     @Published private(set) var activitySummary: ClaudeActivitySummary?
+    /// Token and cost totals by session id, from OpenTelemetry metrics.
+    @Published private(set) var usage: [String: ClaudeUsage] = [:]
+    @Published private(set) var lastMetricsAt: Date?
 
     /// How long an ended session stays visible.
     static let endedRetention: TimeInterval = 10
@@ -33,9 +36,15 @@ final class ClaudeCodeManager: ObservableObject {
     private var transientTask: Task<Void, Never>?
     private var attentionToken = 0
     private var settingsCancellable: AnyCancellable?
+    /// Latest value per metric time series, per session: deltas are added, cumulative values replace.
+    private var usageSeries: [String: [String: (metric: ClaudeUsageSample.Metric, value: Double)]] = [:]
+    private var usageUpdatedAt: [String: Date] = [:]
     private lazy var listener = ClaudeCodeListener(
         onEvent: { event in
             Task { @MainActor in ClaudeCodeManager.shared.handle(event) }
+        },
+        onUsage: { samples in
+            Task { @MainActor in ClaudeCodeManager.shared.handle(samples) }
         },
         onStatus: { status in
             Task { @MainActor in ClaudeCodeManager.shared.status = status }
@@ -64,6 +73,9 @@ final class ClaudeCodeManager: ObservableObject {
         sweepTask = nil
         setTransient(nil)
         sessionsByID.removeAll()
+        usageSeries.removeAll()
+        usageUpdatedAt.removeAll()
+        usage = [:]
         publish()
     }
 
@@ -92,6 +104,35 @@ final class ClaudeCodeManager: ObservableObject {
         publish()
     }
 
+    func handle(_ samples: [ClaudeUsageSample], at now: Date = .now) {
+        for sample in samples {
+            var series = usageSeries[sample.sessionID, default: [:]]
+            let previous = sample.isCumulative ? 0 : (series[sample.seriesKey]?.value ?? 0)
+            series[sample.seriesKey] = (sample.metric, previous + sample.value)
+            usageSeries[sample.sessionID] = series
+            usageUpdatedAt[sample.sessionID] = now
+        }
+        lastMetricsAt = now
+        for sessionID in Set(samples.map(\.sessionID)) {
+            usage[sessionID] = Self.totals(usageSeries[sessionID] ?? [:])
+        }
+    }
+
+    private static func totals(_ series: [String: (metric: ClaudeUsageSample.Metric, value: Double)]) -> ClaudeUsage {
+        var usage = ClaudeUsage()
+        for (metric, value) in series.values {
+            switch metric {
+            case .cost: usage.costUSD += value
+            case .tokens(type: "input"): usage.inputTokens += value
+            case .tokens(type: "output"): usage.outputTokens += value
+            case .tokens(type: "cacheRead"): usage.cacheReadTokens += value
+            case .tokens(type: "cacheCreation"): usage.cacheCreationTokens += value
+            case .tokens: break
+            }
+        }
+        return usage
+    }
+
     /// Marks quiet active sessions as stale and drops ended or long-idle ones.
     func sweep(now: Date) {
         let staleAfter = TimeInterval(Defaults[.claudeCodeStaleMinutes] * 60)
@@ -100,13 +141,27 @@ final class ClaudeCodeManager: ObservableObject {
             if session.state == .ended && now.timeIntervalSince(session.stateChangedAt) >= Self.endedRetention
                 || quiet >= Self.maximumIdle {
                 sessionsByID[id] = nil
+                usageSeries[id] = nil
+                usageUpdatedAt[id] = nil
+                usage[id] = nil
             } else if (session.state.isActive || session.state == .needsPermission) && quiet >= staleAfter {
                 // Esc fires no hook, so a cancelled turn or permission prompt would otherwise stay forever.
                 sessionsByID[id]?.state = .stale
                 sessionsByID[id]?.stateChangedAt = now
             }
         }
+        pruneOrphanUsage(now: now)
         publish()
+    }
+
+    /// Usage for sessions the app never saw a hook event for (or that were already removed)
+    /// is kept briefly, then dropped.
+    private func pruneOrphanUsage(now: Date) {
+        for (id, updatedAt) in usageUpdatedAt where sessionsByID[id] == nil && now.timeIntervalSince(updatedAt) >= 10 * 60 {
+            usageSeries[id] = nil
+            usageUpdatedAt[id] = nil
+            usage[id] = nil
+        }
     }
 
     private func publish() {
