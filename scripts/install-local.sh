@@ -40,8 +40,12 @@ if [ -n "$(git -C "$REPO" status --porcelain)" ]; then
 fi
 
 echo "Building $(git -C "$REPO" rev-parse --abbrev-ref HEAD) @ $(git -C "$REPO" rev-parse --short HEAD)..."
+# Hardened Runtime is off because an ad-hoc signature has no Team ID, and library
+# validation would then reject the embedded MediaRemoteAdapter.framework at launch.
+# With an Apple Development certificate, drop this override and pass DEVELOPMENT_TEAM instead.
 xcodebuild -project "$REPO/boringNotch.xcodeproj" -scheme boringNotch -configuration Release \
-    -derivedDataPath "$DERIVED_DATA" -quiet build
+    -destination "platform=macOS,arch=$(uname -m)" -derivedDataPath "$DERIVED_DATA" -quiet \
+    ENABLE_HARDENED_RUNTIME=NO build
 [ -d "$BUILT_APP" ] || fail "build succeeded but $BUILT_APP is missing"
 
 if pgrep -xq "Boring Notch"; then
