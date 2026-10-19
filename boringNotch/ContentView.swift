@@ -24,6 +24,10 @@ struct ContentView: View {
     @ObservedObject var notificationManager = SystemNotificationManager.shared
     /// Which entry of the closed-notch activity stack is on top.
     @State private var activityIndex: Int = 0
+    /// Mirror of `ClaudeCodeManager.activitySummary`. ContentView deliberately does not
+    /// observe the manager, which publishes on every hook event.
+    @State private var claudeSummary: ClaudeActivitySummary?
+    @Default(.claudeCodeInFrontOfMusic) private var claudeCodeInFrontOfMusic
     @State private var hoverTask: Task<Void, Never>?
     @State private var isHovering: Bool = false
     @State private var anyDropDebounceTask: Task<Void, Never>?
@@ -101,23 +105,19 @@ struct ContentView: View {
     /// it drops out of this list on its own and music comes back — no
     /// explicit "restore previous activity" bookkeeping needed.
     private var liveActivities: [LiveActivityItem] {
-        var items: [LiveActivityItem] = []
-
-        if let notification = notificationManager.activeNotification {
-            items.append(.notification(notification))
-        }
-
         let musicIsShowing = (!coordinator.expandingView.show || coordinator.expandingView.type == .music)
             && (musicManager.isPlaying || !musicManager.isPlayerIdle)
             && coordinator.musicLiveActivityEnabled
         // The inline song-change peek is drawn inside the music pill, so it
         // has to bring the pill with it even when the persistent live
         // activity is turned off — otherwise the peek never appears.
-        if musicIsShowing || showingInlineMusicPeek {
-            items.append(.music)
-        }
-
-        return items
+        return LiveActivityOrder.items(
+            notification: notificationManager.activeNotification,
+            claudeCode: claudeSummary,
+            musicShowing: musicIsShowing,
+            musicPeekShowing: showingInlineMusicPeek,
+            claudeCodeInFrontOfMusic: claudeCodeInFrontOfMusic
+        )
     }
 
     /// A notification is a glance, not a workspace — it doesn't need the full
@@ -204,6 +204,11 @@ struct ContentView: View {
             switch activity {
             case .notification:
                 chinWidth += (2 * max(0, vm.effectiveClosedNotchHeight - 12) + 20)
+            case .claudeCode:
+                chinWidth += ClaudeLiveActivity.extraChinWidth(
+                    itemSize: max(0, vm.effectiveClosedNotchHeight - 12),
+                    showsPeek: claudeSummary?.peek != nil
+                )
             case .music:
                 chinWidth += (2 * max(0, displayClosedNotchHeight - 12) + 20 + 2 * liveActivityEdgeMargin + 2)
                 // The inline song-change peek widens the pill itself, so the
@@ -339,6 +344,13 @@ struct ContentView: View {
                     .onChange(of: notificationManager.activeNotification?.id) { _, newID in
                         if newID != nil { activityIndex = 0 }
                     }
+                    .onReceive(ClaudeCodeManager.shared.$activitySummary.removeDuplicates()) { summary in
+                        claudeSummary = summary
+                    }
+                    // Claude Code needing the user, or finishing, comes to the front like a notification.
+                    .onChange(of: claudeSummary?.attentionToken) { old, new in
+                        if let new, new != old { activityIndex = 0 }
+                    }
                     // Activities disappear on their own (a notification
                     // expires, music stops). Keep the selection in range so
                     // the stack falls back to whatever is left instead of
@@ -454,6 +466,10 @@ struct ContentView: View {
                               case .music:
                                   MusicLiveActivity()
                                       .frame(alignment: .center)
+                              case .claudeCode:
+                                  if let claudeSummary {
+                                      ClaudeLiveActivity(summary: claudeSummary)
+                                  }
                               }
                           }
                       } else if !coordinator.expandingView.show && vm.notchState == .closed && (!musicManager.isPlaying && musicManager.isPlayerIdle) && Defaults[.showNotHumanFace] && !vm.hideOnClosed {
@@ -791,9 +807,16 @@ struct ContentView: View {
 extension ContentView {
     @discardableResult
     private func doOpen() -> Bool {
+        // Opening on a session that waits for a permission decision lands on its tab.
+        let opensClaudeCode = selectedActivity == .claudeCode
+            && claudeSummary?.look == .needsYou
+            && !Defaults[.compactMode]
         var didOpen = false
         withAnimation(animationSpring) {
             didOpen = vm.open()
+        }
+        if didOpen && opensClaudeCode {
+            coordinator.currentView = .claudeCode
         }
         return didOpen
     }
@@ -1011,7 +1034,10 @@ extension ContentView {
                 return false
             }
 
-            return coordinator.musicLiveActivityEnabled && (musicManager.isPlaying || !musicManager.isPlayerIdle)
+            // Track skipping only when music is the activity on screen, not under a
+            // notification or the Claude Code activity.
+            return selectedActivity == .music
+                && coordinator.musicLiveActivityEnabled && (musicManager.isPlaying || !musicManager.isPlayerIdle)
 
         case .open:
             if Defaults[.compactMode] {

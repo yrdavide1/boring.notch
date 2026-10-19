@@ -10,6 +10,7 @@ import SwiftUI
 struct ClaudeCodeSettingsView: View {
     @Default(.claudeCodeEnabled) private var enabled
     @Default(.claudeCodeStaleMinutes) private var staleMinutes
+    @Default(.claudeCodeClosedActivity) private var closedActivity
     @ObservedObject private var manager = ClaudeCodeManager.shared
 
     private static let pluginPath = "<path to boring.notch>/extras/claude-code-plugin"
@@ -53,6 +54,22 @@ struct ClaudeCodeSettingsView: View {
                 Text("General")
             } footer: {
                 Text("A session that stops sending events while working, for example after you press Esc, is shown as inactive.")
+            }
+
+            Section {
+                Picker("Show in closed notch", selection: $closedActivity) {
+                    Text("Off").tag(ClaudeClosedActivityMode.off)
+                    Text("While working").tag(ClaudeClosedActivityMode.whileWorking)
+                    Text("Only when it needs you").tag(ClaudeClosedActivityMode.onlyWhenNeedsYou)
+                }
+                Defaults.Toggle(key: .claudeCodeInFrontOfMusic) {
+                    Text("Show in front of music")
+                }
+                .disabled(closedActivity == .off)
+            } header: {
+                Text("Closed notch")
+            } footer: {
+                Text("A session waiting for a permission decision always comes to the front. When the last working session finishes, a check mark shows for a few seconds.")
             }
 
             Section {
