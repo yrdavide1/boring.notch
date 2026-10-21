@@ -458,3 +458,105 @@ final class ClaudeCodeManagerUsageTests: XCTestCase {
         XCTAssertNil(manager.usage["s2"])
     }
 }
+
+final class ClaudeStatusLineTests: XCTestCase {
+    func testDecodesOnlyTheNeededFields() throws {
+        let json = #"""
+        {"session_id":"s1","transcript_path":"/Users/me/.claude/projects/x/s1.jsonl","cwd":"/Users/me/Git/x",
+         "model":{"id":"claude-opus","display_name":"Opus"},"workspace":{"current_dir":"/Users/me/Git/x"},
+         "cost":{"total_cost_usd":0.12},
+         "context_window":{"context_window_size":200000,"used_percentage":8,"current_usage":null},
+         "rate_limits":{"five_hour":{"used_percentage":23.5,"resets_at":1738425600},
+                        "seven_day":{"used_percentage":41.2,"resets_at":1738857600.75}}}
+        """#
+        let statusLine = try ClaudeStatusLine(from: Data(json.utf8))
+        XCTAssertEqual(statusLine.sessionID, "s1")
+        XCTAssertEqual(statusLine.contextUsedPercentage, 8)
+        XCTAssertEqual(statusLine.fiveHour, .init(usedPercentage: 23.5, resetsAt: Date(timeIntervalSince1970: 1_738_425_600)))
+        XCTAssertEqual(statusLine.sevenDay?.resetsAt, Date(timeIntervalSince1970: 1_738_857_600.75), "resets_at may carry a fraction")
+    }
+
+    func testMissingAndNullFields() throws {
+        let early = try ClaudeStatusLine(from: Data(#"{"session_id":"s1","context_window":{"used_percentage":null}}"#.utf8))
+        XCTAssertEqual(early, ClaudeStatusLine(sessionID: "s1", contextUsedPercentage: nil, fiveHour: nil, sevenDay: nil))
+
+        let partial = try ClaudeStatusLine(from: Data(#"{"rate_limits":{"seven_day":{"used_percentage":5,"resets_at":100},"five_hour":{"used_percentage":5}}}"#.utf8))
+        XCTAssertNil(partial.fiveHour, "a window without resets_at is ignored")
+        XCTAssertEqual(partial.sevenDay?.usedPercentage, 5)
+
+        XCTAssertThrowsError(try ClaudeStatusLine(from: Data("not json".utf8)))
+    }
+
+    func testFormatting() {
+        XCTAssertEqual(ClaudeLimits.percentText(41.6), "42%")
+        XCTAssertEqual(ClaudeLimits.durationText(-5), "<1m")
+        XCTAssertEqual(ClaudeLimits.durationText(59), "<1m")
+        XCTAssertEqual(ClaudeLimits.durationText(12 * 60 + 30), "12m")
+        XCTAssertEqual(ClaudeLimits.durationText(2 * 3600 + 10 * 60), "2h 10m")
+        XCTAssertEqual(ClaudeLimits.durationText(3 * 86_400 + 4 * 3600 + 59 * 60), "3d 4h")
+    }
+
+    func testSeverity() {
+        func window(_ percentage: Double) -> ClaudeLimitWindow {
+            ClaudeLimitWindow(usedPercentage: percentage, resetsAt: .distantFuture)
+        }
+        XCTAssertEqual(window(79.9).severity, .normal)
+        XCTAssertEqual(window(80).severity, .high)
+        XCTAssertEqual(window(95).severity, .critical)
+    }
+}
+
+@MainActor
+final class ClaudeCodeManagerLimitsTests: XCTestCase {
+    private let manager = ClaudeCodeManager.shared
+    private let start = Date(timeIntervalSince1970: 1_000)
+
+    override func setUp() async throws { manager.stop() }
+    override func tearDown() async throws { manager.stop() }
+
+    private func statusLine(session: String? = "s1", context: Double? = nil, fiveHour: Double? = nil, sevenDay: Double? = nil) -> ClaudeStatusLine {
+        ClaudeStatusLine(
+            sessionID: session,
+            contextUsedPercentage: context,
+            fiveHour: fiveHour.map { .init(usedPercentage: $0, resetsAt: start.addingTimeInterval(3_600)) },
+            sevenDay: sevenDay.map { .init(usedPercentage: $0, resetsAt: start.addingTimeInterval(86_400)) }
+        )
+    }
+
+    func testNewestWindowWinsAndMissingWindowsAreKept() {
+        manager.handle(statusLine(fiveHour: 10, sevenDay: 40), at: start)
+        manager.handle(statusLine(session: "s2", fiveHour: 12), at: start.addingTimeInterval(60))
+        XCTAssertEqual(manager.limits.fiveHour?.usedPercentage, 12)
+        XCTAssertEqual(manager.limits.sevenDay?.usedPercentage, 40, "kept from the earlier report")
+
+        manager.handle(statusLine(), at: start.addingTimeInterval(120))
+        XCTAssertEqual(manager.limits.fiveHour?.usedPercentage, 12, "a session before its first response reports nothing")
+        XCTAssertEqual(manager.lastStatusLineAt, start.addingTimeInterval(120))
+    }
+
+    func testExpiredWindowsAreDropped() {
+        manager.handle(statusLine(fiveHour: 90, sevenDay: 40), at: start)
+        XCTAssertNil(manager.limits.current(at: start.addingTimeInterval(3_600)).fiveHour)
+        XCTAssertNotNil(manager.limits.current(at: start.addingTimeInterval(3_600)).sevenDay)
+
+        manager.sweep(now: start.addingTimeInterval(3_600))
+        XCTAssertNil(manager.limits.fiveHour)
+        XCTAssertEqual(manager.limits.sevenDay?.usedPercentage, 40)
+    }
+
+    func testContextPercentageFollowsTheSession() {
+        manager.handle(statusLine(session: "unknown", context: 50), at: start)
+        XCTAssertNil(manager.contextPercentage["unknown"], "only listed sessions get a value")
+
+        manager.handle(ClaudeHookEvent(sessionID: "s1", hookEventName: "UserPromptSubmit"), at: start)
+        manager.handle(statusLine(context: 42), at: start)
+        XCTAssertEqual(manager.contextPercentage["s1"], 42)
+        manager.handle(statusLine(context: nil), at: start)
+        XCTAssertNil(manager.contextPercentage["s1"], "null after /compact hides the old value")
+
+        manager.handle(statusLine(context: 30), at: start)
+        manager.handle(ClaudeHookEvent(sessionID: "s1", hookEventName: "SessionEnd"), at: start)
+        manager.sweep(now: start.addingTimeInterval(ClaudeCodeManager.endedRetention))
+        XCTAssertNil(manager.contextPercentage["s1"])
+    }
+}

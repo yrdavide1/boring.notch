@@ -25,6 +25,9 @@ final class ClaudeCodeListener: @unchecked Sendable {
     static let hooksPath = "/hooks"
     /// OTLP/HTTP JSON metrics export from Claude Code (token and cost usage).
     static let metricsPath = "/v1/metrics"
+    /// Status line JSON forwarded by the user's status line script (subscription limits, context size).
+    static let statusLinePath = "/statusline"
+    private static let paths: Set<String> = [hooksPath, metricsPath, statusLinePath]
 
     private static let maxBodySize = 1024 * 1024
     private static let connectionTimeout: TimeInterval = 5
@@ -35,15 +38,18 @@ final class ClaudeCodeListener: @unchecked Sendable {
 
     private let onEvent: @Sendable (ClaudeHookEvent) -> Void
     private let onUsage: @Sendable ([ClaudeUsageSample]) -> Void
+    private let onStatusLine: @Sendable (ClaudeStatusLine) -> Void
     private let onStatus: @Sendable (Status) -> Void
 
     init(
         onEvent: @escaping @Sendable (ClaudeHookEvent) -> Void,
         onUsage: @escaping @Sendable ([ClaudeUsageSample]) -> Void,
+        onStatusLine: @escaping @Sendable (ClaudeStatusLine) -> Void,
         onStatus: @escaping @Sendable (Status) -> Void
     ) {
         self.onEvent = onEvent
         self.onUsage = onUsage
+        self.onStatusLine = onStatusLine
         self.onStatus = onStatus
     }
 
@@ -122,7 +128,7 @@ final class ClaudeCodeListener: @unchecked Sendable {
             respond(on: connection, status: 403, reason: "Forbidden")
             return
         }
-        guard request.method == "POST", request.path == Self.hooksPath || request.path == Self.metricsPath else {
+        guard request.method == "POST", Self.paths.contains(request.path) else {
             respond(on: connection, status: 404, reason: "Not Found")
             return
         }
@@ -130,14 +136,17 @@ final class ClaudeCodeListener: @unchecked Sendable {
         // Answer first so Claude Code never waits on the app.
         respond(on: connection, status: 200, reason: "OK")
         do {
-            if request.path == Self.hooksPath {
+            switch request.path {
+            case Self.hooksPath:
                 onEvent(try decoder.decode(ClaudeHookEvent.self, from: request.body))
-            } else {
+            case Self.statusLinePath:
+                onStatusLine(try ClaudeStatusLine(from: request.body))
+            default:
                 let samples = try OTLPUsageParser.samples(from: request.body)
                 if !samples.isEmpty { onUsage(samples) }
             }
         } catch {
-            // The path is public for debugging; the error text stays private, as payloads carry the user's email.
+            // The path is public for debugging; the error text stays private, as payloads carry the user's email and paths.
             Log.claudeCode.error("Ignoring undecodable payload on \(request.path, privacy: .public): \(error.localizedDescription)")
         }
     }

@@ -23,6 +23,11 @@ final class ClaudeCodeManager: ObservableObject {
     /// Token and cost totals by session id, from OpenTelemetry metrics.
     @Published private(set) var usage: [String: ClaudeUsage] = [:]
     @Published private(set) var lastMetricsAt: Date?
+    /// Subscription limits from the status line, kept until their window resets.
+    @Published private(set) var limits = ClaudeLimits()
+    /// Context window use by session id, from the status line.
+    @Published private(set) var contextPercentage: [String: Double] = [:]
+    @Published private(set) var lastStatusLineAt: Date?
 
     /// How long an ended session stays visible.
     static let endedRetention: TimeInterval = 10
@@ -45,6 +50,9 @@ final class ClaudeCodeManager: ObservableObject {
         },
         onUsage: { samples in
             Task { @MainActor in ClaudeCodeManager.shared.handle(samples) }
+        },
+        onStatusLine: { statusLine in
+            Task { @MainActor in ClaudeCodeManager.shared.handle(statusLine) }
         },
         onStatus: { status in
             Task { @MainActor in ClaudeCodeManager.shared.status = status }
@@ -76,6 +84,8 @@ final class ClaudeCodeManager: ObservableObject {
         usageSeries.removeAll()
         usageUpdatedAt.removeAll()
         usage = [:]
+        limits = ClaudeLimits()
+        contextPercentage = [:]
         publish()
     }
 
@@ -118,6 +128,18 @@ final class ClaudeCodeManager: ObservableObject {
         }
     }
 
+    func handle(_ statusLine: ClaudeStatusLine, at now: Date = .now) {
+        lastStatusLineAt = now
+        let merged = limits.merged(with: statusLine)
+        if merged != limits { limits = merged }
+        // Only for listed sessions, so the value is removed with its row; the status line
+        // runs again on the next message.
+        if let sessionID = statusLine.sessionID, sessionsByID[sessionID] != nil,
+           contextPercentage[sessionID] != statusLine.contextUsedPercentage {
+            contextPercentage[sessionID] = statusLine.contextUsedPercentage
+        }
+    }
+
     private static func totals(_ series: [String: (metric: ClaudeUsageSample.Metric, value: Double)]) -> ClaudeUsage {
         var usage = ClaudeUsage()
         for (metric, value) in series.values {
@@ -144,6 +166,7 @@ final class ClaudeCodeManager: ObservableObject {
                 usageSeries[id] = nil
                 usageUpdatedAt[id] = nil
                 usage[id] = nil
+                contextPercentage[id] = nil
             } else if (session.state.isActive || session.state == .needsPermission) && quiet >= staleAfter {
                 // Esc fires no hook, so a cancelled turn or permission prompt would otherwise stay forever.
                 sessionsByID[id]?.state = .stale
@@ -151,6 +174,8 @@ final class ClaudeCodeManager: ObservableObject {
             }
         }
         pruneOrphanUsage(now: now)
+        let currentLimits = limits.current(at: now)
+        if currentLimits != limits { limits = currentLimits }
         publish()
     }
 
