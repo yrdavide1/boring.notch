@@ -5,7 +5,7 @@
 
 import SwiftUI
 
-/// Notch tab listing live Claude Code sessions.
+/// Notch tab listing live Claude Code sessions, under the subscription limits when known.
 struct ClaudeCodeView: View {
     @ObservedObject private var manager = ClaudeCodeManager.shared
 
@@ -13,10 +13,22 @@ struct ClaudeCodeView: View {
         RoundedRectangle(cornerRadius: 16)
             .fill(Color.white.opacity(0.04))
             .overlay {
-                if manager.sessions.isEmpty {
-                    emptyState
-                } else {
-                    sessionList
+                TimelineView(.periodic(from: .now, by: 1)) { context in
+                    VStack(spacing: 0) {
+                        let limits = manager.limits.current(at: context.date)
+                        if !limits.isEmpty {
+                            ClaudeLimitsHeader(limits: limits, now: context.date)
+                                .padding(.horizontal, 16)
+                                .padding(.top, 10)
+                                .padding(.bottom, 2)
+                        }
+                        if manager.sessions.isEmpty {
+                            emptyState
+                                .frame(maxHeight: .infinity)
+                        } else {
+                            sessionList(now: context.date)
+                        }
+                    }
                 }
             }
     }
@@ -37,23 +49,92 @@ struct ClaudeCodeView: View {
         .padding()
     }
 
-    private var sessionList: some View {
-        TimelineView(.periodic(from: .now, by: 1)) { context in
-            ScrollView(.vertical, showsIndicators: false) {
-                VStack(spacing: 2) {
-                    ForEach(manager.sessions) { session in
-                        ClaudeSessionRow(session: session, usage: manager.usage[session.id], now: context.date)
-                    }
+    private func sessionList(now: Date) -> some View {
+        ScrollView(.vertical, showsIndicators: false) {
+            VStack(spacing: 2) {
+                ForEach(manager.sessions) { session in
+                    ClaudeSessionRow(
+                        session: session,
+                        usage: manager.usage[session.id],
+                        contextPercentage: manager.contextPercentage[session.id],
+                        now: now
+                    )
                 }
-                .padding(6)
             }
+            .padding(6)
         }
+    }
+}
+
+/// 5-hour and weekly usage bars.
+private struct ClaudeLimitsHeader: View {
+    let limits: ClaudeLimits
+    let now: Date
+
+    var body: some View {
+        HStack(spacing: 18) {
+            if let fiveHour = limits.fiveHour {
+                ClaudeLimitBar(label: String(localized: "5h", comment: "Claude Code 5-hour usage limit, short label"), window: fiveHour, now: now)
+            }
+            if let sevenDay = limits.sevenDay {
+                ClaudeLimitBar(label: String(localized: "7d", comment: "Claude Code weekly usage limit, short label"), window: sevenDay, now: now)
+            }
+            Spacer(minLength: 0)
+        }
+    }
+}
+
+private struct ClaudeLimitBar: View {
+    let label: String
+    let window: ClaudeLimitWindow
+    let now: Date
+
+    private static let barWidth: CGFloat = 56
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Text(label)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(.gray)
+            Capsule()
+                .fill(Color.white.opacity(0.12))
+                .frame(width: Self.barWidth, height: 5)
+                .overlay(alignment: .leading) {
+                    Capsule()
+                        .fill(color)
+                        .frame(width: Self.barWidth * min(1, max(0, window.usedPercentage / 100)))
+                }
+            Text(ClaudeLimits.percentText(window.usedPercentage))
+                .font(.system(size: 11, weight: .semibold).monospacedDigit())
+                .foregroundStyle(window.severity == .normal ? Color.white : color)
+            Text(detail)
+                .font(.system(size: 11).monospacedDigit())
+                .foregroundStyle(.gray)
+                .lineLimit(1)
+        }
+        .accessibilityElement(children: .combine)
+    }
+
+    private var color: Color {
+        switch window.severity {
+        case .normal: .white
+        case .high: .orange
+        case .critical: .red
+        }
+    }
+
+    private var detail: String {
+        String(
+            localized: "resets in \(ClaudeLimits.durationText(window.resetsAt.timeIntervalSince(now)))",
+            comment: "Claude Code usage limit; argument is a duration such as 2h 10m"
+        )
     }
 }
 
 private struct ClaudeSessionRow: View {
     let session: ClaudeSession
     let usage: ClaudeUsage?
+    let contextPercentage: Double?
     let now: Date
 
     var body: some View {
@@ -72,6 +153,12 @@ private struct ClaudeSessionRow: View {
                 .foregroundStyle(session.state.needsAttention ? Color.orange : Color.gray)
                 .lineLimit(1)
             Spacer(minLength: 8)
+            if let contextPercentage {
+                Text("ctx \(ClaudeLimits.percentText(contextPercentage))")
+                    .font(.system(size: 11).monospacedDigit())
+                    .foregroundStyle(contextPercentage >= 80 ? Color.orange : Color.gray)
+                    .lineLimit(1)
+            }
             if let usage {
                 Text("\(ClaudeUsage.tokensText(usage.totalTokens)) tok · \(ClaudeUsage.costText(usage.costUSD))")
                     .font(.system(size: 11).monospacedDigit())

@@ -29,6 +29,9 @@ struct ClaudeCodeSettingsView: View {
           "OTEL_METRIC_EXPORT_INTERVAL": "5000"
         }
         """
+    private static let statusLineCommand = """
+        printf '%s' "$input" | curl -s -m 0.3 -H 'X-BoringNotch-Client: claude-code' -H 'Content-Type: application/json' --data-binary @- http://127.0.0.1:47800/statusline >/dev/null 2>&1 &
+        """
     private static let uninstallCommands = """
         claude plugin uninstall boring-notch
         claude plugin marketplace remove boring-notch
@@ -105,6 +108,23 @@ struct ClaudeCodeSettingsView: View {
                 Text("Token usage")
             } footer: {
                 Text("To show tokens and cost per session, add these entries to the \"env\" object in ~/.claude/settings.json (merge them if it already exists), then start a new Claude Code session. Claude Code sends usage to this Mac every 5 seconds. The cost is Claude Code's estimate at API prices, not what a subscription bills.")
+            }
+
+            Section {
+                LabeledContent("Last limits update") {
+                    if let lastStatusLineAt = manager.lastStatusLineAt {
+                        Text(lastStatusLineAt, style: .relative)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        Text("None yet")
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                commandBlock(Self.statusLineCommand)
+            } header: {
+                Text("Usage limits")
+            } footer: {
+                Text("To show your 5-hour and weekly limits and each session's context use, add this line to your status line script right after it reads its input into $input, for example after input=$(cat). It runs in the background, so the status line never waits for the app. Claude Code reports limits only on Pro and Max plans, after a session's first response, and only while a session is open.")
             }
 
             Section {
